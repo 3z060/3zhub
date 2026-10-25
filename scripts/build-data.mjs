@@ -6,7 +6,7 @@
 //   PREV_DATA      رابط أو مسار البيانات السابقة لمعرفة الجديد (اختياري)
 //   NTFY_PREFIX    بادئة قنوات التنبيه، مثال: 3zhub-x7k2 (اختياري؛ بدونها لا تُرسل تنبيهات)
 //   USE_AI         true لاستخدام GitHub Models المجانية في التلخيص بالعربي
-//   APP_PASSWORD   كلمة مرور التطبيق: إذا وُجدت تُنشر البيانات مشفرة فقط (repos.enc.json)
+//   APP_PASSWORD   اختياري: إذا ضُبط تُنشر البيانات مشفرة ويُقفل التطبيق بكلمة مرور (repos.enc.json)
 //   MAX_AI         أقصى عدد أدوات تُلخص بالذكاء الاصطناعي في كل تشغيل (افتراضي 12)
 
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
@@ -27,12 +27,6 @@ const PASSWORD = process.env.APP_PASSWORD || '';
 const MAX_ITEMS = 500;
 const MAX_README_PER_RUN = 450;
 const KEEP_DAYS = 30;
-
-// في GitHub Actions نرفض النشر بدون كلمة مرور حتى لا تُنشر البيانات مكشوفة بالخطأ
-if (process.env.GITHUB_ACTIONS && !PASSWORD) {
-  console.error('::error::APP_PASSWORD غير مضبوط في Secrets المستودع — أوقفنا النشر لحماية التطبيق');
-  process.exit(1);
-}
 
 if (!TOKEN) {
   console.error('GITHUB_TOKEN مفقود. محلياً شغّل: GITHUB_TOKEN=$(gh auth token) npm run build');

@@ -35,7 +35,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           APP_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/
-          PREV_DATA: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/data/repos.enc.json
+          PREV_DATA: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/data/repos.json
           NTFY_PREFIX: ${{ vars.NTFY_PREFIX }}
           APP_PASSWORD: ${{ secrets.APP_PASSWORD }}
           USE_AI: 'true'
