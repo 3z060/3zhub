@@ -17,6 +17,7 @@ import { CATEGORIES, classify } from './categories.mjs';
 import { parseReadme } from './readme.mjs';
 import { enrichWithAI } from './ai.mjs';
 import { translateItems } from './translate.mjs';
+import { qualityFlags, spamReason } from './quality.mjs';
 import { decryptJSON, encryptJSON } from './crypto.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -95,18 +96,23 @@ function buildQueries() {
   return q;
 }
 
+let spamCount = 0;
 async function searchAll() {
   const found = new Map();
   for (const { q, pages } of buildQueries()) {
     for (let page = 1; page <= pages; page++) {
       const res = await gh(`/search/repositories?q=${encodeURIComponent(q)}&sort=stars&order=desc&per_page=100&page=${page}`);
       const items = res?.items || [];
-      for (const r of items) if (!r.fork && !r.archived) found.set(r.full_name, r);
+      for (const r of items) {
+        if (r.fork || r.archived) continue;
+        if (spamReason(r)) { spamCount++; continue; }
+        found.set(r.full_name, r);
+      }
       await sleep(2200); // حد البحث 30 طلب/دقيقة
       if (items.length < 100) break;
     }
   }
-  console.log(`نتائج البحث: ${found.size} مستودع`);
+  console.log(`نتائج البحث: ${found.size} مستودع (استُبعد ${spamCount} مستودع مشبوه: قرصنة/غش/برمجيات خبيثة)`);
   return found;
 }
 
@@ -197,7 +203,7 @@ for (const [name, r] of found) merged.set(name, slim(r, prevMap.get(name)));
 // نحتفظ بالأدوات القديمة التي لم تظهر في البحث هذه المرة (حتى ${KEEP_DAYS} يوماً)
 const cutoff = Date.now() - KEEP_DAYS * 864e5;
 for (const [name, it] of prevMap) {
-  if (!merged.has(name) && Date.parse(it.first_seen) > cutoff) merged.set(name, it);
+  if (!merged.has(name) && Date.parse(it.first_seen) > cutoff && !spamReason({ ...it, stargazers_count: it.stars })) merged.set(name, it);
 }
 
 let items = [...merged.values()]
@@ -206,6 +212,8 @@ let items = [...merged.values()]
 
 await fetchReadmes(items);
 await translateItems(items);
+for (const it of items) it.flags = qualityFlags(it);
+console.log(`أدوات ضعيفة أو مشبوهة (مخفية افتراضياً): ${items.filter((it) => it.flags.length).length}`);
 if (process.env.USE_AI === 'true') await enrichWithAI(items, Number(process.env.MAX_AI || 12));
 
 const catsById = Object.fromEntries(CATEGORIES.map((c) => [c.id, c]));
@@ -214,7 +222,8 @@ for (const it of items) {
   if (it.ai?.category && catsById[it.ai.category]) it.cats = [it.ai.category, ...it.cats.filter((c) => c !== it.ai.category && c !== 'other')].slice(0, 3);
 }
 
-const newItems = prev ? items.filter((it) => !prevMap.has(it.full_name)) : [];
+// لا نرسل تنبيهات عن الأدوات الضعيفة أو المشبوهة
+const newItems = prev ? items.filter((it) => !prevMap.has(it.full_name) && !it.flags.length) : [];
 console.log(`أدوات جديدة منذ آخر تحديث: ${newItems.length}`);
 
 const data = {

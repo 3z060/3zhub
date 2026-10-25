@@ -1,5 +1,5 @@
 // يعمل التطبيق بدون إنترنت: الواجهة من الكاش، والبيانات من الشبكة أولاً ثم الكاش
-const VERSION = '3zhub-v3';
+const VERSION = '3zhub-v4';
 const SHELL = ['./', 'index.html', 'style.css', 'app.js', 'lock.js', 'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-180.png', 'icons/icon-512.png'];
 
 self.addEventListener('install', (e) => {

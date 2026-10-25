@@ -17,6 +17,7 @@ const state = {
   saved: store.get('saved', []),
   sort: store.get('sort', 'new'),
   hideCJK: store.get('hideCJK', true),
+  showWeak: store.get('showWeak', false),
   cat: 'all',
   query: '',
   shown: 40,
@@ -205,6 +206,12 @@ const isNew = (it) => state.prevVisit && Date.parse(it.first_seen) > state.prevV
 const summaryOf = (it) => it.ai?.summary || it.ar?.description || it.description || it.ar?.excerpt || it.readme?.excerpt || '';
 const arTitle = (it, t) => it.ar?.titles?.[t] || t;
 
+const FLAG_TEXT = {
+  'fake-stars': 'نجوم كثيرة بدون أي تفاعل حقيقي (قد تكون نجوماً مشتراة)',
+  tiny: 'المستودع شبه فارغ من الكود رغم شهرته',
+  empty: 'لا يوجد وصف ولا محتوى في ملف README',
+};
+
 // شرح الرخصة بلغة بسيطة
 function licenseAr(l) {
   if (!l) return 'لا توجد رخصة محددة، لذلك تحقق من صاحب المشروع قبل استخدامها في عمل تجاري.';
@@ -256,7 +263,7 @@ function card(it) {
     <div class="card-head">
       <img class="avatar" src="${esc(it.avatar)}&s=72" alt="" loading="lazy">
       <div class="card-title"><span class="name">${esc(it.name)}</span><span class="owner">${esc(it.owner)}</span></div>
-      ${isNew(it) ? '<span class="badge-new">جديد</span>' : ''}
+      ${it.flags?.length ? '<span class="badge-warn">⚠️ مشبوهة</span>' : isNew(it) ? '<span class="badge-new">جديد</span>' : ''}
       <button class="card-share" data-share="${esc(it.full_name)}" aria-label="مشاركة الأداة"><svg viewBox="0 0 24 24"><path d="M12 3v13M7 8l5-5 5 5M5 14v6h14v-6"/></svg></button>
     </div>
     <p class="${isArabic(s) ? '' : 'en'}" dir="auto">${esc(s)}</p>
@@ -366,6 +373,7 @@ function detail(name) {
       <button class="btn" id="save">${saved ? '✓ محفوظة' : '☆ حفظ'}</button>
       <button class="btn" id="share"><svg viewBox="0 0 24 24"><path d="M12 3v13M7 8l5-5 5 5M5 14v6h14v-6"/></svg>مشاركة</button>
     </div>
+    ${it.flags?.length ? `<div class="warn">⚠️ <div><b>انتبه قبل استخدام هذه الأداة:</b><ul>${it.flags.map((f) => `<li>${FLAG_TEXT[f] || f}</li>`).join('')}</ul>لا تحمّل أو تشغّل ملفات منها قبل التأكد من مصدرها.</div></div>` : ''}
     <div class="stats">
       <div class="stat"><b>★ ${nf.format(it.stars)}</b><span>نجوم</span></div>
       <div class="stat"><b>${it.velocity}</b><span>نجمة/يوم</span></div>
@@ -539,6 +547,13 @@ function settings() {
       <label class="toggle"><input type="checkbox" id="hide-cjk" ${state.hideCJK ? 'checked' : ''}><i></i></label>
     </div>
 
+    <h2>🛡️ فلتر الجودة</h2>
+    <p class="hint">يستبعد 3zhub تلقائياً البرامج المقرصنة وغش الألعاب وأدوات سرقة البيانات، لأنها طُعم شائع لنشر البرمجيات الخبيثة. ويخفي الأدوات الضعيفة (نجوم مشبوهة أو بدون محتوى).</p>
+    <div class="cat-row">
+      <span class="nm">إظهار الأدوات الضعيفة أو المشبوهة${state.data.items.filter((it) => it.flags?.length).length ? ` (${state.data.items.filter((it) => it.flags?.length).length})` : ''}</span>
+      <label class="toggle"><input type="checkbox" id="show-weak" ${state.showWeak ? 'checked' : ''}><i></i></label>
+    </div>
+
     <h2>🎨 المظهر</h2>
     <div class="seg" id="theme">
       <button data-v="auto" class="${theme === 'auto' ? 'on' : ''}">تلقائي</button>
@@ -554,6 +569,7 @@ function settings() {
   view.onchange = (e) => {
     const t = e.target;
     if (t.id === 'hide-cjk') { state.hideCJK = t.checked; store.set('hideCJK', t.checked); return; }
+    if (t.id === 'show-weak') { state.showWeak = t.checked; store.set('showWeak', t.checked); return; }
     if (t.id === 'lock-after') { store.set('lockAfter', Number(t.value)); toast('تم الحفظ'); return; }
     if (t.id === 'face-toggle') {
       (t.checked ? enableFaceId() : disableFaceId())
@@ -616,9 +632,9 @@ function render(keepScroll = false) {
   document.querySelectorAll('.tabs a').forEach((a) => a.classList.toggle('on', a.dataset.tab === tab && !hash.startsWith('/repo/')));
   const y = window.scrollY;
   // إخفاء الأدوات الموصوفة بالصينية/اليابانية/الكورية إذا لم تتوفر لها ترجمة عربية
-  const items = state.hideCJK
-    ? state.data.items.filter((it) => it.ai?.summary || isArabic(it.ar?.description) || !isCJK(`${it.name} ${it.description}`))
-    : state.data.items;
+  const items = state.data.items.filter((it) =>
+    (state.showWeak || !it.flags?.length) &&
+    (!state.hideCJK || it.ai?.summary || isArabic(it.ar?.description) || !isCJK(`${it.name} ${it.description}`)));
 
   if (hash.startsWith('/repo/')) return detail(hash.slice(6));
   if (tab === 'settings') settings();

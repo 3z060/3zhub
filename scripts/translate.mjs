@@ -11,8 +11,9 @@ async function translateText(text) {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
     body: new URLSearchParams({ q: text }),
+    redirect: 'manual', // عند تجاوز الحد تحوّل Google الطلب لصفحة تحقق بدل الترجمة
   });
-  if (!res.ok) throw Object.assign(new Error(`ترجمة ${res.status}`), { status: res.status });
+  if (res.status !== 200) throw Object.assign(new Error(`ترجمة ${res.status}`), { limited: res.status === 429 || (res.status >= 300 && res.status < 400) });
   const json = await res.json();
   return json[0].map((p) => p[0]).join('');
 }
@@ -55,11 +56,11 @@ export async function translateItems(items, max = 500) {
         done++;
       } catch (e) {
         console.warn(`ترجمة: ${it.full_name} — ${e.message}`);
-        if (e.status === 429) stop = true; // تجاوزنا الحد، نكمل في التشغيل القادم
+        if (e.limited) stop = true; // تجاوزنا الحد، نكمل في التشغيل القادم
       }
       await sleep(150);
     }
   };
   await Promise.all(Array.from({ length: 4 }, worker));
-  console.log(`تُرجمت ${done} أداة`);
+  console.log(`تُرجمت ${done} أداة${stop ? ' (توقفت الترجمة مؤقتاً بسبب حد الطلبات، تُستكمل في التحديث القادم)' : ''}`);
 }

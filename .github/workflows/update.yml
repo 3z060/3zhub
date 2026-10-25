@@ -38,7 +38,7 @@ jobs:
           PREV_DATA: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/data/repos.json
           NTFY_PREFIX: ${{ vars.NTFY_PREFIX }}
           APP_PASSWORD: ${{ secrets.APP_PASSWORD }}
-          USE_AI: 'true'
+          USE_AI: 'false'
           MAX_AI: '12'
 
       - uses: actions/configure-pages@v5
