@@ -18,6 +18,8 @@ function cleanInline(s) {
     .replace(/<[^>]+>/g, '')                          // HTML
     .replace(/[*_`~]{1,3}([^*_`~]+)[*_`~]{1,3}/g, '$1')
     .replace(/:[a-z0-9_+-]+:/g, '')                   // :emoji:
+    .replace(/(^|\s)>\s*/g, '$1')                     // اقتباس
+    .replace(/\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]/gi, '')
     .replace(/\s+/g, ' ')
     .trim();
 }

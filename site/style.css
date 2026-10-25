@@ -113,6 +113,12 @@ select.sort {
   font-size: 11px; font-weight: 600; color: var(--accent); background: var(--accent-soft);
   padding: 2px 8px; border-radius: 999px; flex: none;
 }
+.card-share {
+  flex: none; width: 34px; height: 34px; border-radius: 10px; border: 0; background: transparent;
+  color: var(--muted); display: grid; place-items: center; cursor: pointer; margin-inline-start: -6px;
+}
+.card-share svg { width: 18px; height: 18px; }
+.card-share:active { background: var(--surface-2); }
 .card p { margin: 8px 0 10px; color: var(--text); font-size: 14px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .card p.en { direction: ltr; text-align: left; color: var(--muted); }
 .meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; font-size: 12.5px; color: var(--muted); }
@@ -154,6 +160,9 @@ select.sort {
 .section h2 { font-size: 16px; margin: 0 0 8px; display: flex; align-items: center; gap: 8px; }
 .section p { margin: 0 0 8px; }
 .section .orig { direction: ltr; text-align: left; color: var(--muted); font-size: 14px; }
+.orig-box { margin-top: 6px; border-top: 1px solid var(--border); padding-top: 8px; }
+.orig-box summary { color: var(--muted); font-size: 13px; cursor: pointer; }
+.orig-box .orig { margin-top: 8px; }
 .section ul, .section ol { margin: 0; padding-inline-start: 20px; }
 .section li { margin: 4px 0; }
 .section li.en { direction: ltr; text-align: left; }
@@ -165,7 +174,8 @@ select.sort {
 .specs td:last-child { direction: ltr; text-align: left; word-break: break-word; }
 .topics { display: flex; flex-wrap: wrap; gap: 6px; direction: ltr; justify-content: flex-end; }
 .topics span { background: var(--accent-soft); color: var(--accent); font-size: 12px; padding: 2px 8px; border-radius: 6px; }
-code.inline { font-family: var(--mono); font-size: .88em; background: var(--surface-2); padding: 1px 6px; border-radius: 6px; direction: ltr; unicode-bidi: isolate; }
+code.inline { font-family: var(--mono); font-size: .88em; background: var(--surface-2); padding: 1px 6px; border-radius: 6px; direction: ltr; unicode-bidi: isolate; overflow-wrap: anywhere; }
+.section, .detail { overflow-wrap: anywhere; }
 
 .code-block { margin: 10px 0 14px; border-radius: 12px; overflow: hidden; background: var(--code-bg); border: 1px solid var(--border); }
 .code-head {

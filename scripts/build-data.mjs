@@ -14,6 +14,7 @@ import { fileURLToPath } from 'node:url';
 import { CATEGORIES, classify } from './categories.mjs';
 import { parseReadme } from './readme.mjs';
 import { enrichWithAI } from './ai.mjs';
+import { translateItems } from './translate.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const OUT = join(ROOT, 'site', 'data', 'repos.json');
@@ -121,6 +122,8 @@ function slim(r, prev) {
     velocity: Math.round((r.stargazers_count / Math.max((Date.now() - Date.parse(r.created_at)) / 864e5, 0.5)) * 10) / 10,
     cats: classify(r),
     readme: prev?.readme || null,
+    // الترجمة تُعاد فقط إذا تغيّر الوصف
+    ar: prev?.ar && prev.description === (r.description || '').slice(0, 400) ? prev.ar : null,
     ai: prev?.ai || null,
   };
 }
@@ -154,7 +157,7 @@ async function notify(newItems, catsById) {
 
   const send = async (topic, title, list) => {
     const top = list.sort((a, b) => b.stars - a.stars).slice(0, 5);
-    const lines = top.map((it) => `⭐ ${it.stars}  ${it.full_name}\n${it.ai?.summary || it.description || ''}`.slice(0, 220));
+    const lines = top.map((it) => `⭐ ${it.stars}  ${it.full_name}\n${it.ai?.summary || it.ar?.description || it.description || ''}`.slice(0, 220));
     if (list.length > top.length) lines.push(`و ${list.length - top.length} أدوات أخرى…`);
     const body = {
       topic, title, message: lines.join('\n\n'), tags: ['sparkles'],
@@ -189,6 +192,7 @@ let items = [...merged.values()]
   .slice(0, MAX_ITEMS);
 
 await fetchReadmes(items);
+await translateItems(items);
 if (process.env.USE_AI === 'true') await enrichWithAI(items, Number(process.env.MAX_AI || 12));
 
 const catsById = Object.fromEntries(CATEGORIES.map((c) => [c.id, c]));

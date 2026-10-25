@@ -30,7 +30,7 @@ const LANG_COLORS = {
   Elixir: '#6e4a7e', Scala: '#c22d40', Nix: '#7e7eff', MDX: '#fcb32c', Solidity: '#AA6746',
 };
 
-const nf = new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 });
+const nf = new Intl.NumberFormat('ar-u-nu-latn', { notation: 'compact', maximumFractionDigits: 1 });
 const rtf = new Intl.RelativeTimeFormat('ar', { numeric: 'auto' });
 const esc = (s = '') => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const inlineMd = (s) => esc(s).replace(/`([^`]+)`/g, '<code class="inline">$1</code>');
@@ -73,14 +73,40 @@ async function loadData(force = false) {
 
 const catMeta = (id) => state.data?.categories.find((c) => c.id === id) || { id, name: id, emoji: '📦' };
 const isNew = (it) => state.prevVisit && Date.parse(it.first_seen) > state.prevVisit;
-const summaryOf = (it) => it.ai?.summary || it.description || it.readme?.excerpt || '';
+const summaryOf = (it) => it.ai?.summary || it.ar?.description || it.description || it.ar?.excerpt || it.readme?.excerpt || '';
+const arTitle = (it, t) => it.ar?.titles?.[t] || t;
+
+// شرح الرخصة بلغة بسيطة
+function licenseAr(l) {
+  if (!l) return 'لا توجد رخصة محددة، لذلك تحقق من صاحب المشروع قبل استخدامها في عمل تجاري.';
+  if (/^(MIT|Apache|BSD|ISC|Unlicense|0BSD|Zlib|CC0)/i.test(l)) return `رخصة ${l} مفتوحة ومتساهلة: تستطيع استخدامها وتعديلها حتى في المشاريع التجارية، مع ذكر المصدر.`;
+  if (/GPL/i.test(l)) return `رخصة ${l} مفتوحة المصدر، لكن إن نشرت نسخة معدّلة منها يجب أن تكون مفتوحة المصدر أيضاً.`;
+  if (/MPL|EPL/i.test(l)) return `رخصة ${l} مفتوحة، والتعديلات على ملفاتها نفسها يجب أن تبقى مفتوحة.`;
+  return `الرخصة: ${l}. راجع شروطها قبل الاستخدام التجاري.`;
+}
+
+// شرح عربي للأداة يُبنى من البيانات المترجمة إذا لم يتوفر ملخص ذكي
+function explainAr(it) {
+  const cats = it.cats.filter((c) => c !== 'other').map((c) => catMeta(c).name);
+  const days = Math.max(1, Math.round((Date.now() - Date.parse(it.created_at)) / 864e5));
+  const intro = `<b dir="ltr">${esc(it.name)}</b> أداة${cats.length ? ` في مجال ${esc(cats.join(' و'))}` : ''}${it.language ? `، مكتوبة بلغة ${esc(it.language)}` : ''}.`;
+  const what = [it.ar?.description, it.ar?.excerpt && it.ar.excerpt !== it.ar?.description ? it.ar.excerpt : '']
+    .filter(Boolean)
+    .map((s) => s.replace(/>?\s*\[![^\]]*\]\s*>?/g, '').replace(/^\s*>\s*/, '').trim())
+    .map((s) => `<p>${esc(s)}</p>`).join('');
+  const pace = it.velocity >= 200 ? 'وهذا صعود سريع جداً يدل على اهتمام كبير من المطورين' :
+    it.velocity >= 50 ? 'وهذا صعود قوي' : it.velocity >= 10 ? 'وهذا اهتمام جيد' : 'وما زالت في بدايتها';
+  return `<p>${intro}</p>${what}
+    <p>📈 حصلت على <b>${nf.format(it.stars)}</b> نجمة خلال ${days} يوماً من إنشائها (بمعدل ${it.velocity} نجمة يومياً)، ${pace}.</p>
+    <p>⚖️ ${esc(licenseAr(it.license))}</p>`;
+}
 
 function filtered(items) {
   let list = items;
   if (state.cat !== 'all') list = list.filter((it) => it.cats.includes(state.cat));
   const q = state.query.trim().toLowerCase();
   if (q) {
-    list = list.filter((it) => [it.full_name, it.description, it.language, it.topics.join(' '), it.ai?.summary]
+    list = list.filter((it) => [it.full_name, it.description, it.language, it.topics.join(' '), it.ai?.summary, it.ar?.description]
       .join(' ').toLowerCase().includes(q));
   }
   // «الأحدث»: ما اكتُشف في آخر تحديث أولاً (بدقة الساعة)، ثم الأكثر نجوماً
@@ -102,6 +128,7 @@ function card(it) {
       <img class="avatar" src="${esc(it.avatar)}&s=72" alt="" loading="lazy">
       <div class="card-title"><span class="name">${esc(it.name)}</span><span class="owner">${esc(it.owner)}</span></div>
       ${isNew(it) ? '<span class="badge-new">جديد</span>' : ''}
+      <button class="card-share" data-share="${esc(it.full_name)}" aria-label="مشاركة الأداة"><svg viewBox="0 0 24 24"><path d="M12 3v13M7 8l5-5 5 5M5 14v6h14v-6"/></svg></button>
     </div>
     <p class="${isArabic(s) ? '' : 'en'}" dir="auto">${esc(s)}</p>
     <div class="meta">
@@ -174,7 +201,9 @@ function fallbackSteps(it) {
   else if (lang === 'Go') steps.push('تأكد من تثبيت Go: `go version`');
   else if (lang === 'Swift') steps.push('افتح المشروع في Xcode على جهاز Mac');
   if (r.requirements?.length) steps.push('راجع المتطلبات المذكورة أدناه وثبّتها أولاً');
-  steps.push(r.install?.length ? 'نفّذ أوامر التثبيت في قسم «الكود» بالترتيب' : `استنسخ المستودع: \`git clone ${it.url}.git\``);
+  const first = r.install?.[0]?.code.split('\n').map((l) => l.trim().replace(/^\$\s*/, '')).find((l) => l && !l.startsWith('#'));
+  if (first) steps.push(`ثبّتها بهذا الأمر: \`${first.slice(0, 90)}\` (بقية الأوامر في قسم «الكود» بالأسفل)`);
+  else steps.push(`حمّل المشروع إلى جهازك: \`git clone ${it.url}.git\``);
   if (r.usage?.length) steps.push('جرّب أمثلة الاستخدام المرفقة وعدّلها حسب حاجتك');
   if (it.homepage) steps.push('للتوثيق الكامل زر الموقع الرسمي للأداة');
   steps.push('اقرأ ملف README في GitHub لمعرفة كل الخيارات والإعدادات');
@@ -190,7 +219,10 @@ function detail(name) {
   const r = it.readme || { install: [], usage: [], features: [], requirements: [] };
   const ai = it.ai;
   const saved = state.saved.includes(it.full_name);
-  const features = ai?.features?.length ? ai.features : r.features;
+  const features = ai?.features?.length ? ai.features : it.ar?.features?.length ? it.ar.features : r.features;
+  const requirements = it.ar?.requirements?.length ? it.ar.requirements : r.requirements;
+  const block = (c) => codeBlock({ ...c, title: arTitle(it, c.title) });
+  const original = [it.description, r.excerpt].filter((s, i, a) => s && a.indexOf(s) === i && !isArabic(s));
   const steps = ai?.how_to?.length ? ai.how_to : fallbackSteps(it);
 
   view.innerHTML = `<article class="detail">
@@ -203,19 +235,18 @@ function detail(name) {
       <a class="btn primary" href="${esc(it.url)}" target="_blank" rel="noopener">
         <svg viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 14v6H4V6h6"/></svg>فتح في GitHub</a>
       <button class="btn" id="save">${saved ? '✓ محفوظة' : '☆ حفظ'}</button>
-      <button class="btn" id="share" aria-label="مشاركة"><svg viewBox="0 0 24 24"><path d="M12 3v13M7 8l5-5 5 5M5 14v6h14v-6"/></svg></button>
+      <button class="btn" id="share"><svg viewBox="0 0 24 24"><path d="M12 3v13M7 8l5-5 5 5M5 14v6h14v-6"/></svg>مشاركة</button>
     </div>
     <div class="stats">
       <div class="stat"><b>★ ${nf.format(it.stars)}</b><span>نجوم</span></div>
       <div class="stat"><b>${it.velocity}</b><span>نجمة/يوم</span></div>
-      <div class="stat"><b>${nf.format(it.forks)}</b><span>نسخ (Forks)</span></div>
+      <div class="stat"><b>${nf.format(it.forks)}</b><span>نسخة مشتقة</span></div>
     </div>
 
     <section class="section">
-      <h2>📝 نبذة ${ai?.summary ? '<span class="ai-tag">ملخص ذكي</span>' : ''}</h2>
-      ${ai?.summary ? `<p>${esc(ai.summary)}</p>` : ''}
-      ${it.description ? `<p class="${isArabic(it.description) ? '' : 'orig'}" dir="auto">${esc(it.description)}</p>` : ''}
-      ${!ai?.summary && r.excerpt && r.excerpt !== it.description ? `<p class="orig" dir="auto">${esc(r.excerpt)}</p>` : ''}
+      <h2>📝 ما هي هذه الأداة؟ ${ai?.summary ? '<span class="ai-tag">ملخص ذكي</span>' : ''}</h2>
+      ${ai?.summary ? `<p>${esc(ai.summary)}</p>` : explainAr(it)}
+      ${original.length ? `<details class="orig-box"><summary>النص الأصلي بالإنجليزية</summary>${original.map((s) => `<p class="orig" dir="auto">${esc(s)}</p>`).join('')}</details>` : ''}
     </section>
 
     ${features?.length ? `<section class="section"><h2>✨ المميزات</h2><ul>${features.map((f) => `<li class="${isArabic(f) ? '' : 'en'}" dir="auto">${inlineMd(f)}</li>`).join('')}</ul></section>` : ''}
@@ -231,11 +262,11 @@ function detail(name) {
         <tr><td>تاريخ الإنشاء</td><td dir="rtl" style="text-align:right">${ago(it.created_at)}</td></tr>
         <tr><td>آخر تحديث للكود</td><td dir="rtl" style="text-align:right">${ago(it.pushed_at)}</td></tr>
         <tr><td>المشاكل المفتوحة</td><td>${it.issues}</td></tr>
-        <tr><td>الحجم</td><td>${it.size_kb > 1024 ? (it.size_kb / 1024).toFixed(1) + ' MB' : it.size_kb + ' KB'}</td></tr>
+        <tr><td>الحجم</td><td dir="rtl" style="text-align:right">${it.size_kb > 1024 ? (it.size_kb / 1024).toFixed(1) + ' ميجابايت' : it.size_kb + ' كيلوبايت'}</td></tr>
         ${it.homepage ? `<tr><td>الموقع</td><td><a href="${esc(it.homepage)}" target="_blank" rel="noopener" style="color:var(--accent)">${esc(it.homepage.replace(/^https?:\/\//, ''))}</a></td></tr>` : ''}
         ${it.topics.length ? `<tr><td>الوسوم</td><td><div class="topics">${it.topics.slice(0, 12).map((t) => `<span>${esc(t)}</span>`).join('')}</div></td></tr>` : ''}
       </table>
-      ${r.requirements?.length ? `<div class="sub">المتطلبات</div><ul>${r.requirements.map((x) => `<li class="en" dir="auto">${inlineMd(x)}</li>`).join('')}</ul>` : ''}
+      ${requirements?.length ? `<div class="sub">المتطلبات</div><ul>${requirements.map((x) => `<li class="${isArabic(x) ? '' : 'en'}" dir="auto">${inlineMd(x)}</li>`).join('')}</ul>` : ''}
     </section>
 
     <section class="section">
@@ -246,11 +277,17 @@ function detail(name) {
     <section class="section">
       <h2>💻 الكود</h2>
       <div class="sub">التثبيت</div>
-      ${r.install.map(codeBlock).join('')}
-      ${r.usage.length ? `<div class="sub">أمثلة الاستخدام</div>${r.usage.map(codeBlock).join('')}` : '<p class="note">لا توجد أمثلة كود في ملف README، افتح المستودع لتصفح الملفات.</p>'}
+      ${r.install.map(block).join('')}
+      ${r.usage.length ? `<div class="sub">أمثلة الاستخدام</div>${r.usage.map(block).join('')}` : '<p class="note">لا توجد أمثلة كود في ملف README، افتح المستودع لتصفح الملفات.</p>'}
       <div class="sub">تحميل المشروع كاملاً</div>
-      ${codeBlock({ title: 'Git', lang: 'bash', code: `git clone ${it.url}.git` })}
-      <a class="btn" style="width:100%" href="${esc(it.url)}/archive/refs/heads/${esc(it.default_branch || 'main')}.zip">⬇︎ تحميل ZIP</a>
+      ${codeBlock({ title: 'نسخ المستودع عبر Git', lang: 'bash', code: `git clone ${it.url}.git` })}
+      <a class="btn" style="width:100%" href="${esc(it.url)}/archive/refs/heads/${esc(it.default_branch || 'main')}.zip">⬇︎ تحميل ملف مضغوط (ZIP)</a>
+    </section>
+
+    <section class="section share-box">
+      <h2>📤 شارك الأداة</h2>
+      <p class="note">أرسلها لصديق عبر واتساب أو الرسائل أو أي تطبيق، مع وصف عربي ورابطها.</p>
+      <button class="btn primary" id="share-bottom" style="width:100%"><svg viewBox="0 0 24 24"><path d="M12 3v13M7 8l5-5 5 5M5 14v6h14v-6"/></svg>مشاركة الأداة</button>
     </section>
   </article>`;
 
@@ -262,12 +299,28 @@ function detail(name) {
     e.currentTarget.textContent = i >= 0 ? '☆ حفظ' : '✓ محفوظة';
     toast(i >= 0 ? 'أزيلت من المحفوظة' : 'حُفظت');
   };
-  $('#share').onclick = async () => {
-    if (navigator.share) { try { await navigator.share({ title: it.full_name, text: summaryOf(it), url: it.url }); } catch {} }
-    else { await navigator.clipboard?.writeText(it.url); toast('نُسخ الرابط'); }
-  };
+  $('#share').onclick = () => shareTool(it);
+  $('#share-bottom').onclick = () => shareTool(it);
   highlight();
   window.scrollTo(0, 0);
+}
+
+// مشاركة الأداة: قائمة المشاركة في الآيفون، أو نسخ النص إن لم تتوفر
+async function shareTool(it) {
+  const s = summaryOf(it);
+  const text = [
+    `🔧 ${it.name}`,
+    s.length > 220 ? s.slice(0, 220) + '…' : s,
+    `⭐ ${nf.format(it.stars)} نجمة${it.language ? ` · ${it.language}` : ''}`,
+    '',
+    `وجدتها عبر 3zhub`,
+  ].join('\n');
+  if (navigator.share) {
+    try { await navigator.share({ title: it.name, text, url: it.url }); } catch {}
+    return;
+  }
+  try { await navigator.clipboard.writeText(`${text}\n${it.url}`); toast('نُسخ نص المشاركة، الصقه في أي محادثة'); }
+  catch { window.open(`https://wa.me/?text=${encodeURIComponent(`${text}\n${it.url}`)}`, '_blank'); }
 }
 
 // تلوين الأكواد (يُحمّل عند الحاجة فقط)
@@ -330,7 +383,7 @@ function settings() {
 
     <h2>🌍 اللغة</h2>
     <div class="cat-row">
-      <span class="nm">إخفاء الأدوات الموصوفة بالصينية أو اليابانية أو الكورية</span>
+      <span class="nm">إخفاء الأدوات الموصوفة بالصينية أو اليابانية أو الكورية إذا لم تتوفر لها ترجمة</span>
       <label class="toggle"><input type="checkbox" id="hide-cjk" ${state.hideCJK ? 'checked' : ''}><i></i></label>
     </div>
 
@@ -392,9 +445,9 @@ function render(keepScroll = false) {
   const tab = hash.startsWith('/mine') ? 'mine' : hash.startsWith('/saved') ? 'saved' : hash.startsWith('/settings') ? 'settings' : 'home';
   document.querySelectorAll('.tabs a').forEach((a) => a.classList.toggle('on', a.dataset.tab === tab && !hash.startsWith('/repo/')));
   const y = window.scrollY;
-  // إخفاء الأدوات التي وصفها بالصينية/اليابانية/الكورية ما لم يُترجمها الملخص الذكي
+  // إخفاء الأدوات الموصوفة بالصينية/اليابانية/الكورية إذا لم تتوفر لها ترجمة عربية
   const items = state.hideCJK
-    ? state.data.items.filter((it) => it.ai?.summary || !isCJK(`${it.name} ${it.description}`))
+    ? state.data.items.filter((it) => it.ai?.summary || isArabic(it.ar?.description) || !isCJK(`${it.name} ${it.description}`))
     : state.data.items;
 
   if (hash.startsWith('/repo/')) return detail(hash.slice(6));
@@ -429,6 +482,13 @@ window.addEventListener('hashchange', () => {
 
 // ---------- الأحداث العامة ----------
 document.addEventListener('click', async (e) => {
+  const sh = e.target.closest('.card-share');
+  if (sh) {
+    e.preventDefault();
+    const it = state.byName.get(sh.dataset.share);
+    if (it) shareTool(it);
+    return;
+  }
   const b = e.target.closest('.copy');
   if (!b) return;
   const code = b.closest('.code-block').querySelector('code').innerText;
