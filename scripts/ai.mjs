@@ -5,7 +5,9 @@
 import { CATEGORIES } from './categories.mjs';
 
 const ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/interactions';
-const MODEL = process.env.AI_MODEL || 'gemini-3.8-flash';
+// نماذج مجانية بالترتيب: إذا كان أحدها مزدحماً (503) ننتقل للذي بعده
+const MODELS = (process.env.AI_MODEL || 'gemini-3.8-flash,gemini-3.6-flash,gemini-3.5-flash-lite,gemini-2.5-flash').split(',');
+let modelIdx = 0;
 const GAP_MS = 7000; // الخطة المجانية محدودة الطلبات في الدقيقة
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -30,7 +32,7 @@ const SCHEMA = {
   required: ['summary', 'features', 'use_cases', 'how_to', 'category'],
 };
 
-async function ask(it) {
+async function ask(it, model) {
   const context = [
     `الاسم: ${it.full_name}`,
     `الوصف: ${it.description}`,
@@ -43,12 +45,13 @@ async function ask(it) {
     method: 'POST',
     headers: { 'x-goog-api-key': process.env.GEMINI_API_KEY, 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      model: MODEL,
+      model,
       system_instruction: SYSTEM,
       input: context,
       response_format: { type: 'text', mime_type: 'application/json', schema: SCHEMA },
       store: false,
     }),
+    signal: AbortSignal.timeout(90_000),
   });
   if (!res.ok) {
     const err = new Error(`${res.status} ${(await res.text()).slice(0, 300)}`);
@@ -87,15 +90,21 @@ export async function enrichWithAI(items, max) {
     .sort((a, b) => b.first_seen.localeCompare(a.first_seen) || b.stars - a.stars)
     .slice(0, max);
   let done = 0;
-  for (const it of todo) {
+  for (let i = 0; i < todo.length; i++) {
+    const it = todo[i];
     try {
-      it.ai = await ask(it);
+      it.ai = await ask(it, MODELS[modelIdx]);
       done++;
     } catch (e) {
-      console.warn(`AI: ${it.full_name} — ${e.message}`);
-      if ([400, 401, 403, 404, 429].includes(e.status)) break; // مفتاح خاطئ أو انتهى الحد
+      console.warn(`AI (${MODELS[modelIdx]}): ${it.full_name} — ${e.message.slice(0, 160)}`);
+      // النموذج مزدحم أو غير متاح: ننتقل للنموذج التالي ونعيد نفس الأداة
+      // حدود الخطة المجانية لكل نموذج على حدة، لذلك 429 أيضاً ينقلنا للنموذج التالي
+      if ([503, 404, 500, 429].includes(e.status) && modelIdx < MODELS.length - 1) {
+        modelIdx++;
+        todo.splice(i + 1, 0, it);
+      } else if ([400, 401, 403, 429].includes(e.status)) break; // مفتاح خاطئ أو انتهى حد كل النماذج
     }
     await sleep(GAP_MS);
   }
-  console.log(`لُخّصت ${done} أداة بالذكاء الاصطناعي (${MODEL})`);
+  console.log(`لُخّصت ${done} أداة بالذكاء الاصطناعي (آخر نموذج: ${MODELS[modelIdx]})`);
 }
