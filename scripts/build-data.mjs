@@ -5,9 +5,9 @@
 //   GITHUB_TOKEN   مطلوب (في GitHub Actions يُعطى تلقائياً، ومحلياً: gh auth token)
 //   PREV_DATA      رابط أو مسار البيانات السابقة لمعرفة الجديد (اختياري)
 //   NTFY_PREFIX    بادئة قنوات التنبيه، مثال: 3zhub-x7k2 (اختياري؛ بدونها لا تُرسل تنبيهات)
-//   USE_AI         true لاستخدام GitHub Models المجانية في التلخيص بالعربي
+//   USE_AI         true للتلخيص بالعربي عبر Google Gemini (يحتاج GEMINI_API_KEY)
 //   APP_PASSWORD   اختياري: إذا ضُبط تُنشر البيانات مشفرة ويُقفل التطبيق بكلمة مرور (repos.enc.json)
-//   MAX_AI         أقصى عدد أدوات تُلخص بالذكاء الاصطناعي في كل تشغيل (افتراضي 12)
+//   MAX_AI         أقصى عدد أدوات تُلخص في كل تشغيل (افتراضي 10)
 
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
@@ -214,7 +214,7 @@ await fetchReadmes(items);
 await translateItems(items);
 for (const it of items) it.flags = qualityFlags(it);
 console.log(`أدوات ضعيفة أو مشبوهة (مخفية افتراضياً): ${items.filter((it) => it.flags.length).length}`);
-if (process.env.USE_AI === 'true') await enrichWithAI(items, Number(process.env.MAX_AI || 12));
+if (process.env.USE_AI === 'true') await enrichWithAI(items, Number(process.env.MAX_AI || 10));
 
 const catsById = Object.fromEntries(CATEGORIES.map((c) => [c.id, c]));
 // إذا صنّف الذكاء الاصطناعي الأداة، نجعل تصنيفه الأول

@@ -11,7 +11,6 @@ permissions:
   contents: read
   pages: write
   id-token: write
-  models: read
 
 concurrency:
   group: pages
@@ -38,8 +37,9 @@ jobs:
           PREV_DATA: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/data/repos.json
           NTFY_PREFIX: ${{ vars.NTFY_PREFIX }}
           APP_PASSWORD: ${{ secrets.APP_PASSWORD }}
-          USE_AI: 'false'
-          MAX_AI: '12'
+          USE_AI: 'true'
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          MAX_AI: '10'
 
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
