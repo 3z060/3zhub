@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0d1b22"/>
+      <stop offset="1" stop-color="#07332b"/>
+    </linearGradient>
+    <linearGradient id="a" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#4ee0bd"/>
+      <stop offset="1" stop-color="#0f9f7a"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#g)"/>
+  <!-- شبكة الـ hub -->
+  <g stroke="url(#a)" stroke-width="22" stroke-linecap="round" fill="none" opacity=".9">
+    <path d="M256 256 L256 120"/>
+    <path d="M256 256 L374 324"/>
+    <path d="M256 256 L138 324"/>
+  </g>
+  <circle cx="256" cy="120" r="40" fill="#0d1b22" stroke="url(#a)" stroke-width="22"/>
+  <circle cx="374" cy="324" r="40" fill="#0d1b22" stroke="url(#a)" stroke-width="22"/>
+  <circle cx="138" cy="324" r="40" fill="#0d1b22" stroke="url(#a)" stroke-width="22"/>
+  <circle cx="256" cy="256" r="62" fill="url(#a)"/>
+  <text x="256" y="276" text-anchor="middle" font-family="-apple-system, Helvetica, Arial, sans-serif" font-size="58" font-weight="800" fill="#06221c">3z</text>
+</svg>

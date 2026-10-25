@@ -1,0 +1,48 @@
+name: تحديث 3zhub
+
+on:
+  schedule:
+    - cron: '17 * * * *'   # كل ساعة
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+  models: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: جلب وتصنيف الأدوات
+        run: node scripts/build-data.mjs
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APP_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/
+          PREV_DATA: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/data/repos.json
+          NTFY_PREFIX: ${{ vars.NTFY_PREFIX }}
+          USE_AI: 'true'
+          MAX_AI: '12'
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deploy
+        uses: actions/deploy-pages@v4

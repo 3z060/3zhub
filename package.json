@@ -1,0 +1,11 @@
+{
+  "name": "3zhub",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "أحدث أدوات وأكواد GitHub مصنفة حسب المجال — تطبيق PWA للآيفون",
+  "scripts": {
+    "build": "node scripts/build-data.mjs",
+    "dev": "npx --yes serve site -l 5173"
+  }
+}
