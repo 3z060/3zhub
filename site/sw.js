@@ -1,6 +1,6 @@
 // يعمل التطبيق بدون إنترنت: الواجهة من الكاش، والبيانات من الشبكة أولاً ثم الكاش
-const VERSION = '3zhub-v2';
-const SHELL = ['./', 'index.html', 'style.css', 'app.js', 'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-180.png', 'icons/icon-512.png'];
+const VERSION = '3zhub-v3';
+const SHELL = ['./', 'index.html', 'style.css', 'app.js', 'lock.js', 'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-180.png', 'icons/icon-512.png'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(VERSION).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
@@ -18,7 +18,9 @@ self.addEventListener('fetch', (e) => {
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
   const sameOrigin = url.origin === location.origin;
-  const isData = sameOrigin && url.pathname.endsWith('/data/repos.json');
+  // البيانات تُخزّن مشفرة كما هي؛ فك التشفير يحدث في الذاكرة فقط
+  const isData = sameOrigin && /\/data\/repos(\.enc)?\.json$/.test(url.pathname);
+  const dataKey = isData ? `data/${url.pathname.split('/').pop()}` : null;
   const isStatic = sameOrigin || url.hostname.endsWith('cdnjs.cloudflare.com') || url.hostname.includes('fonts.g');
 
   if (isData || (sameOrigin && req.mode === 'navigate') || (sameOrigin && /\.(js|css)$/.test(url.pathname))) {
@@ -26,9 +28,10 @@ self.addEventListener('fetch', (e) => {
     e.respondWith(
       fetch(req).then((res) => {
         const copy = res.clone();
-        if (res.ok) caches.open(VERSION).then((c) => c.put(isData ? 'data/repos.json' : req, copy));
+        if (res.ok) caches.open(VERSION).then((c) => c.put(dataKey || req, copy));
         return res;
-      }).catch(() => caches.match(isData ? 'data/repos.json' : req).then((r) => r || caches.match('index.html'))),
+      }).catch(() => caches.match(dataKey || req).then((r) =>
+        r || (isData ? new Response('', { status: 503 }) : caches.match('index.html')))),
     );
   } else if (isStatic) {
     // الكاش أولاً

@@ -1,4 +1,6 @@
 // 3zhub — واجهة التطبيق
+import { decryptBox, deriveKey, faceIdSupported, registerFaceId, vault, verifyFaceId } from './lock.js';
+
 const $ = (s, el = document) => el.querySelector(s);
 const view = $('#view');
 
@@ -54,21 +56,148 @@ function toast(msg) {
 }
 
 // ---------- البيانات ----------
+// sec.box: البيانات المشفرة كما نُشرت، sec.key: مفتاح فك التشفير (في الذاكرة فقط أثناء الجلسة)
+const sec = { box: null, key: null, locked: false };
+
+function setData(d) {
+  state.data = d;
+  state.byName = new Map(d.items.map((it) => [it.full_name, it]));
+}
+
+async function fetchData(force) {
+  const opt = { cache: force ? 'reload' : 'default' };
+  const q = force ? `?t=${Date.now()}` : '';
+  const res = await fetch('data/repos.enc.json' + q, opt);
+  if (res.ok) return { box: await res.json() };
+  const plain = await fetch('data/repos.json' + q, opt); // وضع التطوير المحلي بدون تشفير
+  if (!plain.ok) throw new Error(plain.status);
+  return { plain: await plain.json() };
+}
+
 async function loadData(force = false) {
   const btn = $('#btn-refresh');
   btn.classList.add('spin');
   try {
-    const res = await fetch('data/repos.json' + (force ? `?t=${Date.now()}` : ''), { cache: force ? 'reload' : 'default' });
-    if (!res.ok) throw new Error(res.status);
-    state.data = await res.json();
-    state.byName = new Map(state.data.items.map((it) => [it.full_name, it]));
-    if (force) toast(`تم التحديث · ${ago(state.data.generated_at)}`);
+    const got = await fetchData(force);
+    if (got.plain) setData(got.plain);
+    else {
+      sec.box = got.box;
+      if (sec.key) setData(await decryptBox(sec.box, sec.key));
+    }
+    if (force && state.data) toast(`تم التحديث · ${ago(state.data.generated_at)}`);
   } catch (e) {
-    if (!state.data) view.innerHTML = `<div class="empty"><span class="big">📡</span>تعذّر تحميل البيانات. تأكد من الاتصال ثم اضغط تحديث.</div>`;
-    else toast('تعذّر التحديث، تعرض آخر نسخة محفوظة');
+    if (!state.data && !sec.box) view.innerHTML = `<div class="empty"><span class="big">📡</span>تعذّر تحميل البيانات. تأكد من الاتصال ثم اضغط تحديث.</div>`;
+    else if (state.data) toast('تعذّر التحديث، تعرض آخر نسخة محفوظة');
   } finally {
     btn.classList.remove('spin');
   }
+}
+
+// ---------- القفل ----------
+const lockEl = $('#lock');
+const fails = { get: () => store.get('fails', 0), set: (n) => store.set('fails', n) };
+
+async function savedKey() {
+  const saved = await vault.get('key');
+  return saved && saved.salt === sec.box.salt && saved.iter === sec.box.iter ? saved.key : null;
+}
+
+function lock() {
+  if (!sec.box) return;
+  sec.key = null;
+  sec.locked = true;
+  state.data = null;
+  state.byName = new Map();
+  view.innerHTML = '';
+  document.body.classList.add('locked');
+  lockEl.hidden = false;
+  $('#lock-pass').value = '';
+  $('#lock-msg').textContent = '';
+  setupLockScreen();
+}
+
+async function unlocked(key, data) {
+  sec.key = key;
+  sec.locked = false;
+  setData(data);
+  fails.set(0);
+  lockEl.hidden = true;
+  document.body.classList.remove('locked');
+  render();
+}
+
+async function setupLockScreen() {
+  const reg = await vault.get('faceid');
+  const key = reg && (await savedKey());
+  const fbtn = $('#lock-face');
+  fbtn.hidden = !key;
+  if (key) {
+    fbtn.onclick = () => tryFaceId(reg, key);
+    tryFaceId(reg, key);
+  } else setTimeout(() => $('#lock-pass').focus(), 50);
+}
+
+async function tryFaceId(reg, key) {
+  const msg = $('#lock-msg');
+  try {
+    if (!(await verifyFaceId(reg))) throw new Error('fail');
+    await unlocked(key, await decryptBox(sec.box, key));
+  } catch (e) {
+    if (e?.name !== 'NotAllowedError') msg.textContent = 'لم يتم التحقق. استخدم Face ID مرة أخرى أو كلمة المرور.';
+  }
+}
+
+$('#lock-form').onsubmit = async (e) => {
+  e.preventDefault();
+  const msg = $('#lock-msg');
+  const btn = $('#lock-btn');
+  const wait = Number(store.get('lockUntil', 0)) - Date.now();
+  if (wait > 0) { msg.textContent = `محاولات كثيرة، انتظر ${Math.ceil(wait / 1000)} ثانية`; return; }
+  const pass = $('#lock-pass').value;
+  if (!pass) return;
+  btn.disabled = true;
+  btn.textContent = 'جارٍ التحقق…';
+  try {
+    const key = await deriveKey(pass, sec.box);
+    const data = await decryptBox(sec.box, key);
+    // تحديث المفتاح المحفوظ إن كان Face ID مفعلاً (مثلاً بعد تغيير كلمة المرور)
+    if (await vault.get('faceid')) await vault.set('key', { key, salt: sec.box.salt, iter: sec.box.iter });
+    await unlocked(key, data);
+    maybeOfferFaceId();
+  } catch {
+    const n = fails.get() + 1;
+    fails.set(n);
+    // انتظار متزايد بعد كل محاولة خاطئة: 2، 4، 8 … حتى 5 دقائق
+    const delay = n >= 3 ? Math.min(2 ** (n - 2), 300) : 0;
+    if (delay) store.set('lockUntil', Date.now() + delay * 1000);
+    msg.textContent = delay ? `كلمة المرور غير صحيحة. انتظر ${delay} ثانية قبل المحاولة التالية.` : 'كلمة المرور غير صحيحة';
+    $('#lock-pass').select();
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'فتح';
+  }
+};
+
+async function enableFaceId() {
+  const reg = await registerFaceId();
+  await vault.set('faceid', reg);
+  await vault.set('key', { key: sec.key, salt: sec.box.salt, iter: sec.box.iter });
+}
+async function disableFaceId() {
+  await vault.del('faceid');
+  await vault.del('key');
+}
+
+async function maybeOfferFaceId() {
+  if (store.get('faceOffered', false) || (await vault.get('faceid')) || !(await faceIdSupported())) return;
+  store.set('faceOffered', true);
+  const b = document.createElement('div');
+  b.className = 'banner';
+  b.innerHTML = '<span>🔐 فعّل الفتح بـ Face ID حتى لا تكتب كلمة المرور كل مرة</span><button class="btn primary">تفعيل</button>';
+  b.querySelector('button').onclick = async () => {
+    try { await enableFaceId(); toast('تم تفعيل Face ID'); b.remove(); } catch { toast('لم يتم التفعيل'); }
+  };
+  view.prepend(b);
 }
 
 const catMeta = (id) => state.data?.categories.find((c) => c.id === id) || { id, name: id, emoji: '📦' };
@@ -330,9 +459,14 @@ function highlight() {
     const css = document.createElement('link');
     css.rel = 'stylesheet';
     css.href = 'https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css';
+    css.integrity = 'sha384-wH75j6z1lH97ZOpMOInqhgKzFkAInZPPSPlZpYKYTOqsaizPvhQZmAtLcPKXpLyH';
+    css.crossOrigin = 'anonymous';
     document.head.append(css);
+    // integrity: يرفض المتصفح الملف إن عُدّل في المصدر
     const s = document.createElement('script');
     s.src = 'https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js';
+    s.integrity = 'sha384-F/bZzf7p3Joyp5psL90p/p89AZJsndkSoGwRpXcZhleCWhd8SnRuoYo4d0yirjJp';
+    s.crossOrigin = 'anonymous';
     s.onload = () => resolve(window.hljs);
     s.onerror = () => resolve(null);
     document.head.append(s);
@@ -381,6 +515,24 @@ function settings() {
         <div class="cat-row"><div><b>✨ كل الأدوات الجديدة (ملخص)</b><span class="topic-name">${esc(prefix)}-all</span></div><button class="btn" data-copy="${esc(prefix)}-all">نسخ</button></div>
       </div>` : '<p class="note">التنبيهات غير مفعّلة على الخادم بعد (يحتاج ضبط NTFY_PREFIX في إعدادات المستودع).</p>'}
 
+    ${sec.box ? `<h2>🔒 الأمان</h2>
+    <p class="hint">بيانات التطبيق منشورة مشفرة بـ AES-256، ولا يمكن قراءتها إلا بكلمة المرور.</p>
+    <div class="cat-row">
+      <span class="nm">الفتح بـ Face ID<span class="topic-name" id="face-note" dir="rtl"></span></span>
+      <label class="toggle"><input type="checkbox" id="face-toggle" disabled><i></i></label>
+    </div>
+    <div class="cat-row">
+      <span class="nm">القفل التلقائي بعد الخروج من التطبيق</span>
+      <select class="sort" id="lock-after">
+        ${[[0, 'فوراً'], [1, 'دقيقة'], [5, '5 دقائق'], [15, '15 دقيقة'], [60, 'ساعة']].map(([v, l]) =>
+          `<option value="${v}" ${Number(store.get('lockAfter', 5)) === v ? 'selected' : ''}>${l}</option>`).join('')}
+      </select>
+    </div>
+    <div class="row-actions">
+      <button class="btn" id="lock-now">🔒 قفل الآن</button>
+      <button class="btn" id="forget">نسيان هذا الجهاز</button>
+    </div>` : ''}
+
     <h2>🌍 اللغة</h2>
     <div class="cat-row">
       <span class="nm">إخفاء الأدوات الموصوفة بالصينية أو اليابانية أو الكورية إذا لم تتوفر لها ترجمة</span>
@@ -402,6 +554,13 @@ function settings() {
   view.onchange = (e) => {
     const t = e.target;
     if (t.id === 'hide-cjk') { state.hideCJK = t.checked; store.set('hideCJK', t.checked); return; }
+    if (t.id === 'lock-after') { store.set('lockAfter', Number(t.value)); toast('تم الحفظ'); return; }
+    if (t.id === 'face-toggle') {
+      (t.checked ? enableFaceId() : disableFaceId())
+        .then(() => toast(t.checked ? 'تم تفعيل Face ID' : 'أُلغي Face ID'))
+        .catch(() => { t.checked = !t.checked; toast('لم يتم التفعيل'); });
+      return;
+    }
     if (t.dataset.my) {
       state.myCats = t.checked ? [...new Set([...state.myCats, t.dataset.my])] : state.myCats.filter((c) => c !== t.dataset.my);
     } else if (t.dataset.alert) {
@@ -422,6 +581,17 @@ function settings() {
       try { await navigator.clipboard.writeText(b.dataset.copy); toast('نُسخ اسم القناة'); } catch { toast(b.dataset.copy); }
     };
   });
+  if (sec.box) {
+    $('#lock-now').onclick = () => lock();
+    $('#forget').onclick = async () => { await disableFaceId(); lock(); };
+    Promise.all([faceIdSupported(), vault.get('faceid')]).then(([ok, reg]) => {
+      const t = $('#face-toggle');
+      if (!t) return;
+      t.disabled = !ok;
+      t.checked = !!reg;
+      if (!ok) $('#face-note').textContent = 'غير متاح على هذا الجهاز أو المتصفح';
+    });
+  }
   $('#theme').onclick = (e) => {
     const v = e.target.dataset.v;
     if (!v) return;
@@ -519,10 +689,14 @@ $('#search').oninput = (e) => {
 };
 $('#btn-refresh').onclick = async () => { await loadData(true); render(true); };
 
-// تحديث تلقائي عند العودة للتطبيق بعد 15 دقيقة
+// القفل التلقائي عند الخروج من التطبيق، والتحديث التلقائي عند العودة بعد 15 دقيقة
 let lastLoad = Date.now();
+let hiddenAt = 0;
 document.addEventListener('visibilitychange', async () => {
-  if (document.visibilityState === 'visible' && Date.now() - lastLoad > 15 * 60e3) {
+  if (document.visibilityState === 'hidden') { hiddenAt = Date.now(); return; }
+  const lockAfter = Number(store.get('lockAfter', 5)) * 60e3;
+  if (sec.box && !sec.locked && hiddenAt && Date.now() - hiddenAt >= lockAfter) return lock();
+  if (!sec.locked && Date.now() - lastLoad > 15 * 60e3) {
     lastLoad = Date.now();
     await loadData(true);
     if (!location.hash.startsWith('#/repo/')) render(true);
@@ -534,6 +708,7 @@ applyTheme();
 view.innerHTML = `<div class="list" style="padding-top:12px">${'<div class="skeleton"></div>'.repeat(6)}</div>`;
 lastListHash = location.hash;
 await loadData();
-render();
+if (sec.box && !state.data) lock();
+else render();
 
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});

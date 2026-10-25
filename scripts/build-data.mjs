@@ -6,22 +6,33 @@
 //   PREV_DATA      رابط أو مسار البيانات السابقة لمعرفة الجديد (اختياري)
 //   NTFY_PREFIX    بادئة قنوات التنبيه، مثال: 3zhub-x7k2 (اختياري؛ بدونها لا تُرسل تنبيهات)
 //   USE_AI         true لاستخدام GitHub Models المجانية في التلخيص بالعربي
+//   APP_PASSWORD   كلمة مرور التطبيق: إذا وُجدت تُنشر البيانات مشفرة فقط (repos.enc.json)
 //   MAX_AI         أقصى عدد أدوات تُلخص بالذكاء الاصطناعي في كل تشغيل (افتراضي 12)
 
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CATEGORIES, classify } from './categories.mjs';
 import { parseReadme } from './readme.mjs';
 import { enrichWithAI } from './ai.mjs';
 import { translateItems } from './translate.mjs';
+import { decryptJSON, encryptJSON } from './crypto.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const OUT = join(ROOT, 'site', 'data', 'repos.json');
+const OUT_ENC = join(ROOT, 'site', 'data', 'repos.enc.json');
 const TOKEN = process.env.GITHUB_TOKEN;
+const PASSWORD = process.env.APP_PASSWORD || '';
 const MAX_ITEMS = 500;
 const MAX_README_PER_RUN = 450;
 const KEEP_DAYS = 30;
+
+// في GitHub Actions نرفض النشر بدون كلمة مرور حتى لا تُنشر البيانات مكشوفة بالخطأ
+if (process.env.GITHUB_ACTIONS && !PASSWORD) {
+  console.error('::error::APP_PASSWORD غير مضبوط في Secrets المستودع — أوقفنا النشر لحماية التطبيق');
+  process.exit(1);
+}
 
 if (!TOKEN) {
   console.error('GITHUB_TOKEN مفقود. محلياً شغّل: GITHUB_TOKEN=$(gh auth token) npm run build');
@@ -56,13 +67,21 @@ async function gh(path, { raw = false } = {}) {
 }
 
 async function loadPrevious() {
-  const src = process.env.PREV_DATA || OUT;
+  const src = process.env.PREV_DATA || (PASSWORD && existsSync(OUT_ENC) ? OUT_ENC : OUT);
   try {
     const text = /^https?:/.test(src)
       ? await fetch(`${src}?t=${Date.now()}`).then((r) => (r.ok ? r.text() : null))
       : await readFile(src, 'utf8');
     if (!text) return null;
-    const data = JSON.parse(text);
+    let data = JSON.parse(text);
+    if (data.ct) {
+      if (!PASSWORD) return null;
+      data = await decryptJSON(data, PASSWORD).catch(() => {
+        console.warn('تعذّر فك تشفير البيانات السابقة (تغيّرت كلمة المرور؟) — نبدأ من جديد');
+        return null;
+      });
+      if (!data) return null;
+    }
     console.log(`البيانات السابقة: ${data.items.length} أداة`);
     return data;
   } catch {
@@ -211,7 +230,16 @@ const data = {
   items,
 };
 await mkdir(dirname(OUT), { recursive: true });
-await writeFile(OUT, JSON.stringify(data, (k, v) => (k === '_md' ? undefined : v)));
-console.log(`✓ كُتب ${items.length} أداة إلى site/data/repos.json`);
+const clean = JSON.parse(JSON.stringify(data, (k, v) => (k === '_md' ? undefined : v)));
+if (PASSWORD) {
+  // لا نترك أي نسخة غير مشفرة داخل مجلد الموقع
+  await rm(OUT, { force: true });
+  await writeFile(OUT_ENC, JSON.stringify(await encryptJSON(clean, PASSWORD)));
+  console.log(`✓ كُتب ${items.length} أداة مشفرة إلى site/data/repos.enc.json`);
+} else {
+  await rm(OUT_ENC, { force: true });
+  await writeFile(OUT, JSON.stringify(clean));
+  console.log(`✓ كُتب ${items.length} أداة إلى site/data/repos.json (بدون تشفير)`);
+}
 
 await notify(newItems, catsById);
